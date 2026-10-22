@@ -11,8 +11,6 @@ from src.service_props import ServiceProps, ServiceSecret
 from src.service_stack import LoadBalancedServiceStack, ServiceStack
 from src.docdb_props import DocdbProps
 from src.docdb_stack import DocdbStack
-from src.bastion_props import BastionProps
-from src.bastion_stack import BastionStack
 
 # get the environment and set environment specific variables
 VALID_ENVIRONMENTS = ["dev", "stage", "prod"]
@@ -113,6 +111,7 @@ docdb_stack = DocdbStack(
 docdb_stack.cluster.connections.allow_from(
     ec2.Peer.ipv4(vpn_cidr), ec2.Port.all_traffic(), "Allow all VPN traffic"
 )
+# TODO(EX-7): allow the data import job to reach DocumentDB once its approach is decided
 
 ecs_stack = EcsStack(
     scope=cdk_app,
@@ -222,24 +221,5 @@ apex_stack = LoadBalancedServiceStack(
 )
 apex_stack.add_dependency(app_stack)
 apex_stack.add_dependency(api_stack)
-
-bastion_props = BastionProps(
-    key_name="agora-access",
-    instance_type=ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
-    ami_id="ami-074a6fac5773fe883",
-    ami_region="us-east-1",
-)
-bastion_stack = BastionStack(
-    scope=cdk_app,
-    construct_id=f"{stack_name_prefix}-bastion",
-    vpc=network_stack.vpc,
-    props=bastion_props,
-)
-bastion_stack.instance.connections.allow_to(
-    docdb_stack.cluster,
-    ec2.Port.tcp_range(mongodb_port, 27030),
-    "Allow bastion host to connect to DocumentDB cluster",
-)
-bastion_stack.add_dependency(docdb_stack)
 
 cdk_app.synth()
