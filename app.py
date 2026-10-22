@@ -22,7 +22,7 @@ match environment:
         environment_variables = {
             "VPC_CIDR": "10.252.174.0/24",
             "FQDN": "xqtlexplorer.adknowledgeportal.org",
-            "CERTIFICATE_ID": "0983d5d7-6480-4292-b4bc-947712f248b0",
+            "CERTIFICATE_ID": "ccf7a7bb-2d30-40ef-89b8-5c9c0581cee5",
             "TAGS": {"CostCenter": "BrainCell QTL / 124900", "Environment": "prod"},
             "AUTO_SCALE_CAPACITY": {"min": 2, "max": 4},
             "GHCR_PACKAGE_VERSION": "1.1.0-rc1",
@@ -33,7 +33,7 @@ match environment:
         environment_variables = {
             "VPC_CIDR": "10.252.173.0/24",
             "FQDN": "stage.xqtlexplorer.adknowledgeportal.org",
-            "CERTIFICATE_ID": "0983d5d7-6480-4292-b4bc-947712f248b0",
+            "CERTIFICATE_ID": "ccf7a7bb-2d30-40ef-89b8-5c9c0581cee5",
             "TAGS": {"CostCenter": "BrainCell QTL / 124900", "Environment": "stage"},
             "AUTO_SCALE_CAPACITY": {"min": 2, "max": 4},
             "GHCR_PACKAGE_VERSION": "1.1.0-rc1",
@@ -44,7 +44,7 @@ match environment:
         environment_variables = {
             "VPC_CIDR": "10.252.172.0/24",
             "FQDN": "dev.xqtlexplorer.adknowledgeportal.org",
-            "CERTIFICATE_ID": "b2e46121-3f53-4aba-af2e-bd724549c494",
+            "CERTIFICATE_ID": "ce35afd1-c1a3-4b39-8f90-9636aa472981",
             "TAGS": {"CostCenter": "BrainCell QTL / 124900", "Environment": "dev"},
             "AUTO_SCALE_CAPACITY": {"min": 1, "max": 2},
             "GHCR_PACKAGE_VERSION": "edge",
