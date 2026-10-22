@@ -25,9 +25,9 @@ match environment:
             "CERTIFICATE_ID": "ccf7a7bb-2d30-40ef-89b8-5c9c0581cee5",
             "TAGS": {"CostCenter": "BrainCell QTL / 124900", "Environment": "prod"},
             "AUTO_SCALE_CAPACITY": {"min": 2, "max": 4},
-            "GHCR_PACKAGE_VERSION": "1.1.0-rc1",
-            "GTM_ENABLED": "true",
-            "GTM_CONTAINER_ID": "GTM-K5BLKJH5",
+            "GHCR_PACKAGE_VERSION": "edge",
+            "GTM_ENABLED": "false",
+            "GTM_CONTAINER_ID": "",
         }
     case "stage":
         environment_variables = {
@@ -36,7 +36,7 @@ match environment:
             "CERTIFICATE_ID": "ccf7a7bb-2d30-40ef-89b8-5c9c0581cee5",
             "TAGS": {"CostCenter": "BrainCell QTL / 124900", "Environment": "stage"},
             "AUTO_SCALE_CAPACITY": {"min": 2, "max": 4},
-            "GHCR_PACKAGE_VERSION": "1.1.0-rc1",
+            "GHCR_PACKAGE_VERSION": "edge",
             "GTM_ENABLED": "false",
             "GTM_CONTAINER_ID": "",
         }
