@@ -57,8 +57,8 @@ match environment:
             f"Must set environment variable `ENV` to one of {valid_envs_str}. Currently set to {environment}."
         )
 
-TAG_PREFIX = "model-ad/v"
-stack_name_prefix = f"model-ad-{environment}"
+TAG_PREFIX = "qtl/v"
+stack_name_prefix = f"qtl-{environment}"
 fully_qualified_domain_name = environment_variables["FQDN"]
 environment_tags = environment_variables["TAGS"]
 ghcr_package_version = environment_variables["GHCR_PACKAGE_VERSION"]
