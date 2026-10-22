@@ -1,10 +1,7 @@
-import os
-
 import aws_cdk as cdk
 from aws_cdk import Duration as duration
 from aws_cdk import aws_certificatemanager as acm
 from aws_cdk import aws_ec2 as ec2
-from aws_cdk import aws_ecr_assets as ecr_assets
 from aws_cdk import aws_ecs as ecs
 from aws_cdk import aws_elasticloadbalancingv2 as elbv2
 from aws_cdk import aws_iam as iam
@@ -87,31 +84,16 @@ class ServiceStack(cdk.Stack):
         self.task_definition = ecs.FargateTaskDefinition(
             self,
             "TaskDef",
-            cpu=props.ecs_task_cpu,
-            memory_limit_mib=props.ecs_task_memory,
+            cpu=2048,
+            memory_limit_mib=4096,
             task_role=task_role,
             execution_role=execution_role,
         )
 
-        if props.build_from_path:  # build container from source
-            location = props.container_location
-            if not os.path.isdir(location):
-                raise ValueError(
-                    f"container_location path '{location}' is not a valid directory."
-                )
-            if not os.path.isfile(os.path.join(location, "Dockerfile")):
-                raise FileNotFoundError(
-                    f"No Dockerfile found in container_location path '{location}'. "
-                    f"A Dockerfile is required to build the container from source."
-                )
-            # Fargate runs linux/amd64 by default. Force the build platform so
-            # images built locally on arm64 hosts (e.g. Apple Silicon) run on Fargate.
-            image = ecs.ContainerImage.from_asset(
-                location,
-                platform=ecr_assets.Platform.LINUX_AMD64,
-            )
-        else:
-            image = ecs.ContainerImage.from_registry(props.container_location)
+        image = ecs.ContainerImage.from_registry(props.container_location)
+        if "path://" in props.container_location:  # build container from source
+            location = props.container_location.removeprefix("path://")
+            image = ecs.ContainerImage.from_asset(location)
 
         def _get_secret(scope: Construct, id: str, name: str) -> sm.Secret:
             """Get a secret from the AWS secrets manager"""
@@ -127,6 +109,7 @@ class ServiceStack(cdk.Stack):
         self.container = self.task_definition.add_container(
             props.container_name,
             image=image,
+            memory_reservation_mib=props.container_memory_reservation,
             environment=props.container_env_vars,
             secrets=secrets,
             port_mappings=[
@@ -144,12 +127,6 @@ class ServiceStack(cdk.Stack):
             health_check=props.container_healthcheck,
         )
 
-        self.security_group = ec2.SecurityGroup(self, "SecurityGroup", vpc=vpc)
-        self.security_group.add_ingress_rule(
-            peer=ec2.Peer.ipv4("0.0.0.0/0"),
-            connection=ec2.Port.tcp(props.container_port),
-        )
-
         # attach ECS task to ECS cluster
         self.service = ecs.FargateService(
             self,
@@ -158,7 +135,6 @@ class ServiceStack(cdk.Stack):
             task_definition=self.task_definition,
             enable_execute_command=True,
             circuit_breaker=ecs.DeploymentCircuitBreaker(enable=True, rollback=True),
-            security_groups=([self.security_group]),
             service_connect_configuration=ecs.ServiceConnectProps(
                 log_driver=ecs.LogDrivers.aws_logs(stream_prefix=f"{construct_id}"),
                 services=[
@@ -181,6 +157,7 @@ class ServiceStack(cdk.Stack):
                 ),
             ],
         )
+        self.service.connections.allow_from_any_ipv4(ec2.Port.tcp(props.container_port))
 
         # Setup AutoScaling policy
         scaling = self.service.auto_scale_task_count(
@@ -240,89 +217,85 @@ class LoadBalancedServiceStack(ServiceStack):
         cluster: ecs.Cluster,
         props: ServiceProps,
         load_balancer: elbv2.ApplicationLoadBalancer,
-        certificate_arn: str = None,
+        certificate_id: str,
         health_check_path: str = "/",
         health_check_interval: int = 1,  # max is 5
-        enable_https: bool = False,
+        redirect_from_hostname: str | None = None,
+        redirect_to_hostname: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, vpc, cluster, props, **kwargs)
 
-        if enable_https and not certificate_arn:
+        # -------------------
+        # ACM Certificate for HTTPS
+        # -------------------
+        certificate_arn = (
+            f"arn:aws:acm:{self.region}:{self.account}:certificate/{certificate_id}"
+        )
+        self.cert = acm.Certificate.from_certificate_arn(
+            self, "Cert", certificate_arn=certificate_arn
+        )
+
+        # -------------------------------
+        # Setup https
+        # -------------------------------
+        https_listener = elbv2.ApplicationListener(
+            self,
+            "HttpsListener",
+            load_balancer=load_balancer,
+            port=ALB_HTTPS_LISTENER_PORT,
+            open=True,
+            protocol=elbv2.ApplicationProtocol.HTTPS,
+            certificates=[self.cert],
+        )
+
+        https_listener.add_targets(
+            "HttpsTarget",
+            port=props.container_port,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+            targets=[self.service],
+            health_check=elbv2.HealthCheck(
+                path=health_check_path, interval=duration.minutes(health_check_interval)
+            ),
+        )
+
+        if bool(redirect_from_hostname) != bool(redirect_to_hostname):
             raise ValueError(
-                "enable_https is True but certificate_arn is None. "
-                "Please provide a valid certificate ARN to enable HTTPS."
-            )
-        if enable_https and certificate_arn:
-            # -------------------
-            # ACM Certificate for HTTPS
-            # -------------------
-            self.cert = acm.Certificate.from_certificate_arn(
-                self, "Cert", certificate_arn=certificate_arn
+                "redirect_from_hostname and redirect_to_hostname must both be set or both be None"
             )
 
-            # -------------------------------
-            # Setup https
-            # -------------------------------
-            https_listener = elbv2.ApplicationListener(
-                self,
-                "HttpsListener",
-                load_balancer=load_balancer,
-                port=ALB_HTTPS_LISTENER_PORT,
-                open=True,
-                protocol=elbv2.ApplicationProtocol.HTTPS,
-                certificates=[self.cert],
-            )
-
-            self.target_group = https_listener.add_targets(
-                "HttpsTarget",
-                port=props.container_port,
-                protocol=elbv2.ApplicationProtocol.HTTP,
-                targets=[self.service],
-                health_check=elbv2.HealthCheck(
-                    path=health_check_path,
-                    interval=duration.minutes(health_check_interval),
-                ),
-            )
-
-            # -------------------------------
-            # redirect http to https
-            # -------------------------------
-            http_listener = elbv2.ApplicationListener(
-                self,
-                "HttpListener",
-                load_balancer=load_balancer,
-                port=ALB_HTTP_LISTENER_PORT,
-                open=True,
-                protocol=elbv2.ApplicationProtocol.HTTP,
-            )
-
-            http_listener.add_action(
-                "HttpRedirect",
+        if redirect_from_hostname and redirect_to_hostname:
+            https_listener.add_action(
+                "SubdomainRedirect",
+                priority=1,  # unique per listener; increment if more rules are added
+                conditions=[
+                    elbv2.ListenerCondition.host_headers([redirect_from_hostname])
+                ],
                 action=elbv2.ListenerAction.redirect(
+                    host=redirect_to_hostname,
                     port=str(ALB_HTTPS_LISTENER_PORT),
-                    protocol=(elbv2.ApplicationProtocol.HTTPS).value,
+                    protocol=elbv2.ApplicationProtocol.HTTPS.value,
                     permanent=True,
                 ),
             )
-        else:
-            # Only HTTP listener, no HTTPS
-            http_listener = elbv2.ApplicationListener(
-                self,
-                "HttpListener",
-                load_balancer=load_balancer,
-                port=ALB_HTTP_LISTENER_PORT,
-                open=True,
-                protocol=elbv2.ApplicationProtocol.HTTP,
-            )
 
-            self.target_group = http_listener.add_targets(
-                "HttpTarget",
-                port=props.container_port,
-                protocol=elbv2.ApplicationProtocol.HTTP,
-                targets=[self.service],
-                health_check=elbv2.HealthCheck(
-                    path=health_check_path,
-                    interval=duration.minutes(health_check_interval),
-                ),
-            )
+        # -------------------------------
+        # redirect http to https
+        # -------------------------------
+        http_listener = elbv2.ApplicationListener(
+            self,
+            "HttpListener",
+            load_balancer=load_balancer,
+            port=ALB_HTTP_LISTENER_PORT,
+            open=True,
+            protocol=elbv2.ApplicationProtocol.HTTP,
+        )
+
+        http_listener.add_action(
+            "HttpRedirect",
+            action=elbv2.ListenerAction.redirect(
+                port=str(ALB_HTTPS_LISTENER_PORT),
+                protocol=(elbv2.ApplicationProtocol.HTTPS).value,
+                permanent=True,
+            ),
+        )

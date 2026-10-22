@@ -1,7 +1,6 @@
-
 # AWS CDK app
 
-A Github template using the AWS CDK to create an ECS infrastructure project
+A Github template using the AWS CDK to create an ECS infrastructure project for deploying Model-AD.
 
 # Prerequisites
 
@@ -24,7 +23,7 @@ With VS Code:
 1. Clone this repo
 2. File > Open Folder...
 3. A prompt should invite you to open the project inside the dev container. If not, open VS Code
-    Command Palette and select "Dev Containers: Open Folder in Container..."
+   Command Palette and select "Dev Containers: Open Folder in Container..."
 
 With GitHub Codespaces:
 
@@ -40,37 +39,36 @@ All the development tools are provided when developing inside the dev container
 also include a Python virtual environment where all the Python packages needed
 are already installed.
 
-If you decide the develop outside of the dev container, some of the development
-tools can be installed by running:
+If you decide to develop outside of the dev container, you'll need
+[uv](https://docs.astral.sh/uv/getting-started/installation/) installed.
+Then run:
 
 ```console
 ./tools/setup.sh
 ```
 
-Development requires the activation of the Python virtual environment:
+This creates a `.venv` and installs Python dependencies from `uv.lock`.
+Run Python commands via `uv run` so they execute inside the managed env:
 
-```
-$ source .venv/bin/activate
-```
-
-At this point you can now synthesize the CloudFormation template for this code.
-
-```
-$ cdk synth
+```console
+$ uv run cdk synth
 ```
 
-To add additional dependencies, for example other CDK libraries, just add
-them to your `setup.py` file and rerun the `pip install -r requirements.txt`
-command.
+(You can also `source .venv/bin/activate` once and drop the `uv run` prefix
+for the rest of your shell session.)
+
+To add or remove dependencies, use `uv add <pkg>` / `uv add --group dev <pkg>` /
+`uv remove <pkg>`. These commands update both `pyproject.toml` and `uv.lock`
+automatically. The `uv-lock` pre-commit hook also keeps the lockfile in sync
+when `pyproject.toml` changes.
 
 ## Useful commands
 
- * `cdk ls`          list all stacks in the app
- * `cdk synth`       emits the synthesized CloudFormation template
- * `cdk deploy`      deploy this stack to your default AWS account/region
- * `cdk diff`        compare deployed stack with current state
- * `cdk docs`        open CDK documentation
-
+- `cdk ls` list all stacks in the app
+- `cdk synth` emits the synthesized CloudFormation template
+- `cdk deploy` deploy this stack to your default AWS account/region
+- `cdk diff` compare deployed stack with current state
+- `cdk docs` open CDK documentation
 
 # Testing
 
@@ -80,13 +78,20 @@ As a pre-deployment step we syntactically validate the CDK json, yaml and
 python files with [pre-commit](https://pre-commit.com).
 
 Please install pre-commit, once installed the file validations will
-automatically run on every commit.  Alternatively you can manually
+automatically run on every commit. Alternatively you can manually
 execute the validations by running `pre-commit run --all-files`.
+
+Create a [GitHub classic personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-personal-access-token-classic) with `read:packages` access. The token is used to authenticate with the GitHub API and access the packages endpoint to look up the latest image version for each service. Create an `.env` file with the following variables:
+
+```
+GITHUB_TOKEN="your-token-here"
+ENV="dev"
+```
 
 Verify CDK to Cloudformation conversion by running [cdk synth]:
 
 ```console
-cdk synth --context env=dev
+env $(cat .env | xargs) uv run cdk synth
 ```
 
 The Cloudformation output is saved to the `cdk.out` folder
@@ -96,38 +101,35 @@ The Cloudformation output is saved to the `cdk.out` folder
 Tests are available in the tests folder. Execute the following to run tests:
 
 ```
-python -m pytest tests/ -s -v
+uv run pytest tests/ -s -v
 ```
-
 
 ## Environments
 
-When running `cdk` commands, you must specify which environment's
-configuration to use.  This is done by passing a context variable to
-CDK, which loads environment-specific parameters.
+An `ENV` environment variable must be set when running the `cdk` command tell the
+CDK which environment's variables to use when synthesising or deploying the stacks.
 
-Create a configuration file in the [config folder](./config) for each environment
-(e.g., `dev.yaml`, `prod.yaml`).  Both yaml and json files are supported.
-The supported environments are dev, stage, and prod.
+Set environment variables for each environment in the [app.py](./app.py) file:
 
-To synthesize or deploy using the `prod` environment configuration:
-
-```console
-cdk synth --context env=prod
+```python
+environment_variables = {
+    "VPC_CIDR": "10.254.192.0/24",
+    "FQDN": "dev.app.io",
+    "CERTIFICATE_ID": "0e9682f6-3ffa-46fb-9671-b6349f5164d6",
+    "TAGS": {"CostCenter": "NO PROGRAM / 000000"},
+}
 ```
 
-There is also an optional base configuration file that is always loaded
-and merged with one of the passed in environment configuration.
+For example, synthesis with the `prod` environment variables:
 
-The values from the environment-specific configuration file will
-override those in the base configuration file if there are conflicts.
-For example, if both files define `TAGS`, the value from `dev.yaml`
-will take precedence.
-
+```console
+ENV=prod cdk synth
+```
 
 > [!NOTE]
-> Ensure that `VPC_CIDR` is unique within your AWS organization.
-Refer to our [guidance](https://sagebionetworks.jira.com/wiki/spaces/IT/pages/2850586648/Setup+AWS+VPC) on selecting a unique CIDR block.
+> The `VPC_CIDR` must be a unique value within our AWS organization. Check our
+> [wiki](https://sagebionetworks.jira.com/wiki/spaces/IT/pages/2850586648/Setup+AWS+VPC)
+> for information on how to obtain a unique CIDR
 
 ## Certificates
 
@@ -136,34 +138,6 @@ This is not automated due to AWS requiring manual verification of the domain own
 Once created take the ARN of the certificate and set that ARN in environment_variables.
 
 ![ACM certificate](docs/acm-certificate.png)
-
-## Container image
-
-The container image for a service is set via the `container_location` field on the
-`ServiceProps` object in [app.py](app.py). Two forms are supported:
-
-| Form | Example | Behavior |
-|------|---------|----------|
-| Docker registry reference | `ghcr.io/sage-bionetworks/app:latest`<br>`nginx:1.27`<br>`123456789012.dkr.ecr.us-east-1.amazonaws.com/app:v1.0` | Pulls a pre-built image from a registry (Docker Hub, GHCR, Amazon ECR, etc.). Include an explicit tag; omitting one defaults to `:latest`. |
-| Local build path (`path://`) | `path://docker/MyContainer` | Builds the image from a local Dockerfile at the given path (relative to the project root) at deploy time and uploads it to the CDK asset bucket. The `path://` prefix is stripped before the directory is passed to `ContainerImage.from_asset`. |
-
-```python
-from src.service_props import ServiceProps
-
-# Pull a pre-built image from a registry
-app_props = ServiceProps(
-    container_name="app",
-    container_port=80,
-    container_location="ghcr.io/sage-bionetworks/app:v1.0",
-)
-
-# Build the image from a local Dockerfile at deploy time (supports relative path)
-app_props = ServiceProps(
-    container_name="app",
-    container_port=80,
-    container_location="path://docker/MyContainer",
-)
-```
 
 ## Secrets
 
@@ -174,14 +148,14 @@ When naming your secret make sure that the secret does not end in a pattern that
 
 To pass secrets to a container set the secrets manager `container_secrets`
 when creating a `ServiceProp` object. You'll be creating a list of `ServiceSecret` objects:
+
 ```python
 from src.service_props import ServiceProps, ServiceSecret
 
 app_service_props = ServiceProps(
-    ecs_task_cpu=256,
-    ecs_task_memory=512,
     container_name="app",
     container_port=443,
+    container_memory_reservation=1024,
     container_location="ghcr.io/sage-bionetworks/app:v1.0",
     container_secrets=[
         ServiceSecret(
@@ -197,10 +171,11 @@ app_service_props = ServiceProps(
 ```
 
 For example, the KVs for `app/dev/DATABASE` could be:
+
 ```json
 {
-    "DATABASE_USER": "maria",
-    "DATABASE_PASSWORD": "password"
+  "DATABASE_USER": "maria",
+  "DATABASE_PASSWORD": "password"
 }
 ```
 
@@ -222,6 +197,7 @@ import os
 
 my_secret = os.environ.get("SINGLE_VALUE_SECRET", None)
 ```
+
 ![Secrets Manager secret](docs/secrets-manager-secret.png)
 
 > [!NOTE]
@@ -235,7 +211,7 @@ URL. The CDK application exports the DNS name of the Application Load Balancer
 to be consumed in org-formation. [An example PR setting up a CNAME](https://github.com/Sage-Bionetworks-IT/organizations-infra/pull/1299).
 
 Login to the AWS cloudformation console and navigate to the deployed stack `app-load-balancer`
-and click on the `Outputs` tab.  On the row whose key is `LoadBalancerDNS` look for the
+and click on the `Outputs` tab. On the row whose key is `LoadBalancerDNS` look for the
 value in the `Export Name` column, e.g., `app-dev-load-balancer-dns`.
 ![Cloudformation Load Balancer](docs/cloudformation-load-balancer.png)
 
@@ -250,219 +226,20 @@ TargetHostName: !CopyValue [!Sub 'app-dev-load-balancer-dns', !Ref DnTDevAccount
 > [!NOTE]
 > Setting up the DNS cname should be done at the very end of this infra setup
 
-
-## Monitoring (Optional)
-
-This template includes an opt-in monitoring stack that provides CloudWatch alarms,
-SNS notifications, and a CloudWatch dashboard for your ECS service. **No monitoring
-resources are created unless you explicitly configure them.**
-
-### How It Fits Together
-
-When monitoring is enabled, the template creates a fifth CloudFormation stack
-(`app-{env}-monitoring`) that references resources from the other stacks. It also
-enables [ECS Container Insights (Enhanced)](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/ContainerInsights.html)
-on the ECS cluster, which is required for the RunningTaskCount metric.
-
-```mermaid
-graph TB
-    subgraph "Configuration"
-        YAML["Environment YAML<br/>(e.g. dev.yaml)"]
-    end
-
-    subgraph "app-{env}-ecs"
-        CLUSTER["ECS Cluster<br/>(Container Insights: Enhanced)"]
-    end
-
-    subgraph "app-{env}-app"
-        ECS["ECS Fargate Service"]
-        TG["ALB Target Group"]
-    end
-
-    subgraph "app-{env}-load-balancer"
-        ALB["Application Load Balancer"]
-    end
-
-    subgraph "app-{env}-monitoring (new)"
-        SNS["SNS Topic"]
-        EMAIL["Email Subscription"]
-        SLACK["Slack Lambda<br/>(optional)"]
-        ALARMS["CloudWatch Alarms (7)"]
-        DASH["CloudWatch Dashboard<br/>(optional)"]
-    end
-
-    YAML -->|MONITORING config present| CLUSTER
-    YAML -->|MONITORING config| SNS
-    SNS --> EMAIL
-    SNS --> SLACK
-    ALARMS -->|alarm action| SNS
-    ECS -->|CPU, Memory metrics| ALARMS
-    ALB -->|5xx, P99 latency metrics| ALARMS
-    TG -->|Healthy/Unhealthy host metrics| ALARMS
-    CLUSTER -->|Running task count| ALARMS
-    ECS --> DASH
-    ALB --> DASH
-    TG --> DASH
-```
-
-> [!NOTE]
-> The monitoring stack is designed for `LoadBalancedServiceStack` (the default
-> in this template). It requires an ALB target group for the healthy/unhealthy
-> host alarms. If you modify the template to use the base `ServiceStack` without
-> an ALB, you will need to adapt the monitoring stack accordingly.
-
-> [!NOTE]
-> Enabling monitoring turns on
-> [ECS Container Insights (Enhanced)](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/ContainerInsights.html)
-> on the ECS cluster. This adds a small cost (~$0.50/container/month) but is
-> required for the RunningTaskCount metric and provides richer observability.
-
-### Alarm Coverage
-
-```mermaid
-classDiagram
-    class ECSAlarms {
-        +CPU Utilization High >=80%
-        +Memory Utilization High >=80%
-        +Running Tasks Zero ~lt~1
-    }
-    class ALBAlarms {
-        +5xx Error Count >=10 per 5min
-        +P99 Latency >=5s
-    }
-    class TargetGroupAlarms {
-        +Unhealthy Host Count >=1
-        +Healthy Host Count ~lt~1
-    }
-    class SNSTopic {
-        +Email Subscription
-        +Slack Lambda (optional)
-    }
-
-    ECSAlarms --> SNSTopic : alarm action
-    ALBAlarms --> SNSTopic : alarm action
-    TargetGroupAlarms --> SNSTopic : alarm action
-```
-
-### Enabling Monitoring
-
-Default monitoring settings (disabled) live in `config/base.yaml`. To activate,
-override `enabled` and `notification_email` in your environment config:
-
-```yaml
-# config/dev.yaml
-MONITORING:
-  enabled: true
-  notification_email: "team@example.com"
-```
-
-This creates:
-- An SNS topic with an email subscription (you must confirm the subscription via email)
-- 7 CloudWatch alarms with sensible default thresholds
-- A CloudWatch dashboard with ECS, ALB, and health widgets
-- ECS Container Insights (Enhanced) on the cluster
-
-### Full Configuration Reference
-
-All fields except `enabled` and `notification_email` have defaults in `config/base.yaml`:
-
-```yaml
-MONITORING:
-  enabled: true                                # Required - activates the monitoring stack
-  notification_email: "team@example.com"       # Required - SNS email subscription
-  slack_webhook_url: ""                         # Optional - Slack incoming webhook URL for alerts
-  enable_dashboard: true                        # Optional - creates a CloudWatch dashboard (default: true)
-  alarms:                                       # Optional - override default alarm thresholds
-    ecs_cpu_threshold: 80                       # CPU utilization % (default: 80)
-    ecs_memory_threshold: 80                    # Memory utilization % (default: 80)
-    alb_5xx_threshold: 10                       # 5xx error count per 5min (default: 10)
-    alb_p99_latency_threshold: 5                # P99 response time in seconds (default: 5)
-    unhealthy_host_threshold: 1                 # Unhealthy host count to trigger alarm (default: 1)
-    healthy_host_min: 1                         # Minimum healthy hosts before alarm (default: 1)
-    running_task_min: 1                         # Minimum running tasks before alarm (default: 1)
-```
-
-You can override individual alarm thresholds without specifying all of them.
-For example, to only tighten the CPU threshold for production:
-
-```yaml
-# config/prod.yaml
-MONITORING:
-  enabled: true
-  notification_email: "oncall@example.com"
-  alarms:
-    ecs_cpu_threshold: 70
-```
-
-### Notification Flow
-
-```mermaid
-sequenceDiagram
-    participant CW as CloudWatch Metric
-    participant AL as CloudWatch Alarm
-    participant SNS as SNS Topic
-    participant EM as Email
-    participant SL as Slack Lambda
-
-    CW->>AL: Metric breaches threshold
-    AL->>SNS: Publish alarm notification
-    SNS->>EM: Send email to notification_email
-    opt slack_webhook_url configured
-        SNS->>SL: Invoke Lambda
-        SL->>SL: POST to Slack webhook
-    end
-    Note over CW,AL: When metric recovers
-    CW->>AL: Metric returns to normal
-    AL->>SNS: Publish OK notification
-    SNS->>EM: Send recovery email
-```
-
-> [!NOTE]
-> After deployment, you must confirm the SNS email subscription by clicking the
-> link in the confirmation email sent to `notification_email`. Until confirmed,
-> no email alerts will be delivered.
-
-### Dashboard
-
-When enabled (default), the CloudWatch dashboard provides three sections:
-
-| Section | Widgets |
-|---------|---------|
-| **ECS Service** | CPU utilization, Memory utilization, Running task count |
-| **Load Balancer** | Requests & errors (4xx/5xx), Target response time (p50/p90/p99) |
-| **Health** | Healthy/unhealthy host count, Active connections, Running tasks alarm |
-
-After deployment, the dashboard URL is printed as a CloudFormation output.
-You can also find it in the AWS Console under CloudFormation > Stacks >
-`app-{env}-monitoring` > Outputs > `DashboardUrl`.
-
-### Disabling Monitoring
-
-To disable monitoring, remove or comment out the `MONITORING` section
-from your environment config file. On the next deployment, you can delete the
-monitoring stack:
-
-```console
-cdk destroy app-{env}-monitoring --context env={env}
-```
-
-> [!NOTE]
-> Removing the `MONITORING` config also disables Container Insights on the ECS
-> cluster on the next deploy, removing its associated cost.
-
 ## Debugging
 
 Generally CDK deployments will create cloudformation events during a CDK deploy.
 The events can be viewed in the AWS console under the cloudformation service page.
-Viewing those events will help with errors during a deployment.  Below are cases
+Viewing those events will help with errors during a deployment. Below are cases
 where it might be difficult to debug due to misleading or insufficient error
 messages from AWS
 
 ### Missing Secrets
 
-Each new environment (dev/staging/prod/etc..) may require adding secrets.  If a
+Each new environment (dev/staging/prod/etc..) may require adding secrets. If a
 secret is not created for the environment you may get an error with the following
 stack trace..
+
 ```
 Resource handler returned message: "Error occurred during operation 'ECS Deployment Circuit Breaker was triggered'." (RequestToken: d180e115-ba94-d8a2-acf9-abe17a3aaed9, HandlerErrorCode: GeneralServiceException)
     new BaseService (/private/var/folders/qr/ztb40vmn2pncyh8jpsgfnrt40000gp/T/jsii-kernel-4PEWmj/node_modules/aws-cdk-lib/aws-ecs/lib/base/base-service.js:1:3583)
@@ -482,12 +259,12 @@ Resource handler returned message: "Error occurred during operation 'ECS Deploym
 
 There are a few items that need to be manually bootstrapped before deploying the application.
 
-* Add secrets to the AWS Secrets Manager
-* Create an [ACM certificate for the application](#Certificates) using the AWS Certificates Manager
-* Update environment_variables in [app.py](app.py) with variable specific to each environment.
-* Update references to the docker images in [app.py](app.py)
+- Add secrets to the AWS Secrets Manager
+- Create an [ACM certificate for the application](#Certificates) using the AWS Certificates Manager
+- Update environment_variables in [app.py](app.py) with variable specific to each environment.
+- Update references to the docker images in [app.py](app.py)
   (i.e. `ghcr.io/sage-bionetworks/app-xxx:<tag>`)
-* (Optional) Update the `ServiceProps` objects in [app.py](app.py) with parameters specific to
+- (Optional) Update the `ServiceProps` objects in [app.py](app.py) with parameters specific to
   each container.
 
 ## Login with the AWS CLI
@@ -521,14 +298,13 @@ Login with the AWS CLI:
 aws --profile itsandbox-dev sso login
 ```
 
-
 ## Deploy
 
 Deployment requires setting up an [AWS profile](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-quickstart.html)
 then executing the following command:
 
 ```console
-AWS_PROFILE=itsandbox-dev AWS_DEFAULT_REGION=us-east-1 cdk deploy --context env=dev --all
+env $(cat .env | xargs) AWS_PROFILE=itsandbox-dev AWS_DEFAULT_REGION=us-east-1 uv run cdk deploy --all
 ```
 
 ## Force new deployment
@@ -561,13 +337,221 @@ This repo has been set up to use Github Actions CI to continuously deploy the ap
 
 The workflow for continuous integration:
 
-* Create PR from the git dev branch
-* PR is reviewed and approved
-* PR is merged
-* CI deploys changes to the dev environment (dev.app.io) in the AWS dev account.
-* Changes are promoted (or merged) to the git stage branch.
-* CI deploys changes to the staging environment (stage.app.io) in the AWS prod account.
-* Changes are promoted (or merged) to the git prod branch.
-* CI deploys changes to the prod environment (prod.app.io) in the AWS prod account.
+- Create PR from the git dev branch
+- PR is reviewed and approved
+- PR is merged
+- CI deploys changes to the dev environment (dev.app.io) in the AWS dev account.
+- Changes are promoted (or merged) to the git stage branch.
+- CI deploys changes to the staging environment (stage.app.io) in the AWS prod account.
+- Changes are promoted (or merged) to the git prod branch.
+- CI deploys changes to the prod environment (prod.app.io) in the AWS prod account.
 
 ![CI deployment workflow](docs/ci-deployment-workflow.png)
+
+# Deployment Process
+
+## Overview
+
+The source code for the application lives in the [sage-monorepo](https://github.com/Sage-Bionetworks/sage-monorepo). When a new git tag is added in the monorepo, images are published to [GHCR](https://github.com/orgs/Sage-Bionetworks/packages?tab=packages&q=model-ad). These images are deployed with GHA to AWS Fargate using infrastructure code in this repo.
+
+For regular deployments, changes flow through dev → stage → prod environments. For production hotfixes, we use a short-lived release branch strategy: create a hotfix branch from the affected release tag in sage-monorepo, apply the fix, deploy to stage/prod, then backport to main.
+
+> [!NOTE]
+> There may be a delay before the website updates after any deployment jobs since there is a non-trivial cutover delay (a few minutes).
+
+> [!IMPORTANT]
+> You will want to deploy to [model-ad-data-manager](https://github.com/Sage-Bionetworks/model-ad-data-manager) if this app release requires a data release
+
+### Dev
+
+| ![Tags on latest image published by sage-monorepo](docs/dev-package-tags.png) |
+| :---------------------------------------------------------------------------: |
+|                Tags on latest image published by sage-monorepo                |
+
+The development environment was created so that we can redeploy easily. Whenever code in the sage-monorepo is merged after PR was reviewed and all checks approved, a GHA job publishes new images tagged with `edge` and the commit SHA for each service in the stack that changed (e.g. see screenshot of [agora-app package](https://github.com/sage-bionetworks/sage-monorepo/pkgs/container/agora-app) above). The dev infra stack points at the `edge` image tag. So we can rerun the latest `deploy-dev` GHA job to redeploy the latest app code, by looking up the SHA of the most recent image using the `edge` tag and the GitHub API.
+
+So, the footer of the dev site will only show the image tag of the `model-ad-app` package, which in this case is the commit SHA.
+
+### Stage/Prod
+
+| ![git tag on image published by sage-monorepo](docs/stageprod-package-tags.png) |
+| :-----------------------------------------------------------------------------: |
+|                   git tag on image published by sage-monorepo                   |
+
+Stage and prod environments point at a specific git tag that is manually added. As described below, when a new git tag is manually created for this app in the sage-monorepo, a GHA job publishes new images tagged with that git tag (see screenshot above). Then, the stage or prod environment variables in the infra repo can be updated to point at that tag. When the changes are merged to the `stage` or `prod` branch, a GHA job will run the `deploy-stage` or `deploy-prod` job accordingly, which will deploy the images tagged with the git tag.
+
+## Dev Deployment
+
+1. When a PR that affects this app is merged to `main` in the sage-monorepo, wait for the [ci job](https://github.com/Sage-Bionetworks/sage-monorepo/actions/workflows/ci.yml) to finish building and publishing images for the affected projects to GHCR.
+2. Rerun the last [deploy-dev job](https://github.com/Sage-Bionetworks-IT/modeladexplorer-infra/actions/workflows/deploy-dev.yaml) and wait for the job to successfully update dev deployment. Deployment can be monitored in AWS console in AWS ECS.
+3. Confirm that [dev site](https://dev.modeladexplorer.org/) shows changes from last merged PR.
+
+## Staging Deployment
+
+1. Review the list of existing tags [here](https://github.com/Sage-Bionetworks/sage-monorepo/tags). Identify the next `model-ad` tag. For example, if the last `model-ad` tag is `model-ad/v4.0.0-rc2`, then the next tag will be `model-ad/v4.0.0-rc3`. If the last `model-ad` tag doesn’t have a release candidate suffix (e.g. `model-ad/v4.0.0`), then the next tag will be the first release candidate of a new version (e.g. `model-ad/v4.0.1-rc1`). This follows the convention found at [semver.org](https://semver.org/).
+2. Create a new git tag in the sage-monorepo:
+   - Open devcontainer
+   - Checkout the main branch: `git checkout main`
+   - Fetch latest changes: `git fetch upstream`
+   - Rebase: `git rebase upstream/main`
+   - Tag the commit: `git tag model-ad/v4.0.0-rc3`
+   - Push the tag: `git push upstream tag model-ad/v4.0.0-rc3`
+3. Wait for sage-monorepo [release GHA job](https://github.com/Sage-Bionetworks/sage-monorepo/actions/workflows/release.yml) to successfully build, tag, and push images to GHCR.
+4. Create a new branch and edit `app.py` to set `GHCR_PACKAGE_VERSION` to the new version number (e.g. `4.0.0-rc3`) and not the tag (e.g. `model-ad/v4.0.0-rc3`) in 2 places in the code for `stage` and `prod` configurations. Create PR in this [repo](https://github.com/Sage-Bionetworks-IT/modeladexplorer-infra) **to the dev branch**.
+5. Merge PR. Wait for [deploy-dev job](https://github.com/Sage-Bionetworks-IT/modeladexplorer-infra/actions/workflows/deploy-dev.yaml) to successfully update dev deployment. Deployment can be monitored in AWS console in AWS ECS.
+6. Create PR in this repo **to merge dev into the stage branch**. You can use this [url](https://github.com/Sage-Bionetworks-IT/modeladexplorer-infra/compare/stage...dev).
+7. Merge PR. Wait for [deploy-stage GHA job](https://github.com/Sage-Bionetworks-IT/modeladexplorer-v3/actions/workflows/deploy-stage.yaml) to successfully update staging deployment. Deployment can be monitored in AWS console in AWS ECS (see [NOTE on cutover delay](#overview) above).
+8. Confirm that [staging site](http://stage.modeladexplorer.org/) shows new version’s tag in the app footer.
+
+## Production Deployment
+
+1. Go to the staging site and note the tag in the app footer. Identify the `model-ad` release tag. For example, if the staging site tag is `model-ad/v4.0.0-rc3`, then the release version will be `model-ad/release/v4.0.0`.
+2. Create a new git tag in the sage-monorepo:
+   - Open devcontainer
+   - Checkout the main branch: `git checkout main`
+   - Fetch latest changes: `git fetch upstream`
+   - Rebase: `git rebase upstream/main`
+   - Get the commit hash of the existing tag: `git rev-list -n 1 model-ad/v4.0.0-rc3`
+   - Create a new tag pointing to the same commit: `git tag model-ad/release/v4.0.0 {commit hash}`
+   - Confirm that the new tag is on the same commit as the previous tag by reviewing the git log: `git log --oneline`
+   - Push the tag: `git push upstream tag model-ad/release/v4.0.0`
+3. Create a PR in this repo **to merge the stage branch into the prod branch**. You can use this [url](https://github.com/Sage-Bionetworks-IT/modeladexplorer-infra/compare/prod...stage).
+4. Merge PR. Wait for the [deploy-prod GHA job](https://github.com/Sage-Bionetworks-IT/modeladexplorer-infra/actions/workflows/deploy-prod.yaml) to successfully update prod deployment. Deployment can be monitored in AWS console in AWS ECS.
+5. Confirm that [production site](http://modeladexplorer.org/) shows the same tag in the app footer as the staging site.
+
+## Hotfix Deployment
+
+When a critical bug is discovered in production, use this workflow to deploy a fix quickly while maintaining proper version control and ensuring the fix is not lost in future releases. This process uses a fork-based maintainer workflow with short-lived release branches.
+
+### sage-monorepo: Create Hotfix Branch and Apply Fix
+
+1. **Create the release branch in upstream sage-monorepo**
+
+   As a maintainer, isolate the baseline code by creating a hotfix branch directly from the affected version's release tag (e.g., `model-ad/release/v1.0.0`).
+
+   ```console
+   git fetch upstream --tags
+   git checkout -b model-ad/hotfix/v1.0.1 model-ad/release/v1.0.0
+   git push upstream model-ad/hotfix/v1.0.1
+   ```
+
+2. **Branch from your fork**
+
+   In your local environment (connected to your origin fork), fetch the new upstream branch and create your working feature branch.
+
+   ```console
+   git fetch upstream
+   git checkout -b hotfix/{jira-ticket} upstream/model-ad/hotfix/v1.0.1
+   ```
+
+3. **Commit the fix and push to fork**
+
+   Apply the fix, run local tests, commit the changes, and push the branch to your fork.
+
+   ```console
+   git add .
+   git commit -m "fix(model-ad): resolve production issue ({jira-ticket})"
+   git push origin hotfix/{jira-ticket}
+   ```
+
+4. **Submit Pull Request to the release branch**
+
+   Open a Pull Request on GitHub:
+   - Source: `your-fork/hotfix/{jira-ticket}`
+   - Target: `upstream/model-ad/hotfix/v1.0.1`
+
+5. **Merge and tag the release**
+
+   Once the PR passes CI and code review, merge it into `upstream/model-ad/hotfix/v1.0.1`. Then create and push the release candidate tag.
+
+   ```console
+   git checkout model-ad/hotfix/v1.0.1
+   git pull upstream model-ad/hotfix/v1.0.1
+   git tag model-ad/v1.0.1-rc1
+   git push upstream model-ad/v1.0.1-rc1
+   ```
+
+   Wait for sage-monorepo [release GHA job](https://github.com/Sage-Bionetworks/sage-monorepo/actions/workflows/release.yml) to successfully build, tag, and push images to GHCR.
+
+   > [!NOTE]
+   > If multiple fixes are needed for the same hotfix release, additional PRs can be made to the same `model-ad/hotfix/v1.0.1` branch. Increment the release candidate number for each subsequent fix (e.g., `v1.0.1-rc1`, `v1.0.1-rc2`, etc.).
+
+### modeladexplorer-infra repo: Deploy to Staging
+
+6. **Update modeladexplorer-infra repo to point at hotfix tag**
+
+   Create a new branch from dev in this repo and edit `app.py` to set `GHCR_PACKAGE_VERSION` to the new hotfix version (e.g., `1.0.1-rc1`) in 2 places in the code for `stage` and `prod` configurations.
+
+   ```console
+   git checkout dev
+   git pull origin dev
+   git checkout -b hotfix/update-to-v1.0.1-rc1
+   ```
+
+   Edit `app.py` to update `GHCR_PACKAGE_VERSION` for both `stage` and `prod` configurations, then:
+
+   ```console
+   git add app.py
+   git commit -m "chore: update stage to hotfix v1.0.1-rc1"
+   git push origin hotfix/update-to-v1.0.1-rc1
+   ```
+
+   Create PR **to the dev branch**.
+
+7. **Deploy to dev**
+
+   Merge PR. Wait for [deploy-dev job](https://github.com/Sage-Bionetworks-IT/modeladexplorer-infra/actions/workflows/deploy-dev.yaml) to successfully update dev deployment.
+
+8. **Deploy to staging**
+
+   Create PR **to merge dev into the stage branch**. You can use this [url](https://github.com/Sage-Bionetworks-IT/modeladexplorer-infra/compare/stage...dev).
+
+   Merge PR. Wait for [deploy-stage GHA job](https://github.com/Sage-Bionetworks-IT/modeladexplorer-infra/actions/workflows/deploy-stage.yaml) to successfully update staging deployment. Deployment can be monitored in AWS console in AWS ECS.
+
+   Confirm that [staging site](http://stage.modeladexplorer.org/) shows the hotfix version tag in the app footer.
+
+### sage-monorepo: Create Production Release Tag
+
+9. **Tag the production release**
+
+   Create the final production release tag pointing to the same commit as the release candidate tag.
+
+   ```console
+   git checkout model-ad/hotfix/v1.0.1
+   git pull upstream model-ad/hotfix/v1.0.1
+   git rev-list -n 1 model-ad/v1.0.1-rc1
+   git tag model-ad/release/v1.0.1 {commit hash}
+   ```
+
+   Confirm that the new tag is on the same commit as the previous tag by reviewing the git log:
+
+   ```console
+   git log --oneline
+   ```
+
+   Push the tag:
+
+   ```console
+   git push upstream model-ad/release/v1.0.1
+   ```
+
+### modeladexplorer-infra repo: Deploy to Production
+
+10. **Deploy to production**
+
+    Create a PR **to merge the stage branch into the prod branch**. You can use this [url](https://github.com/Sage-Bionetworks-IT/modeladexplorer-infra/compare/prod...stage).
+
+    Merge PR. Wait for the [deploy-prod GHA job](https://github.com/Sage-Bionetworks-IT/modeladexplorer-infra/actions/workflows/deploy-prod.yaml) to successfully update prod deployment. Deployment can be monitored in AWS console in AWS ECS.
+
+    Confirm that [production site](http://modeladexplorer.org/) shows the hotfix version tag in the app footer.
+
+### sage-monorepo: Backport to Main
+
+11. **Submit Pull Request in sage-monorepo to backport the fix**
+
+    To ensure the fix is not lost in future releases, submit a backport Pull Request:
+    - Source: `upstream/model-ad/hotfix/v1.0.1`
+    - Target: `upstream/main`
+
+    > [!NOTE]
+    > Resolve any merge conflicts that occurred due to changes on main since the original release.
