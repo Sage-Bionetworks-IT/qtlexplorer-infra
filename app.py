@@ -68,8 +68,7 @@ vpn_cidr = "10.1.0.0/16"
 
 # Resolve image tags for each service
 app_version = get_image_version("model-ad-app", ghcr_package_version)
-api_version = get_image_version("model-ad-api", ghcr_package_version)
-api_next_version = get_image_version("model-ad-api-next", ghcr_package_version)
+api_version = get_image_version("qtl-api", ghcr_package_version)
 apex_version = get_image_version("model-ad-apex", ghcr_package_version)
 
 short_commit_sha = get_short_commit_sha(
@@ -77,8 +76,8 @@ short_commit_sha = get_short_commit_sha(
 )
 
 print(
-    f"Using images: model-ad-app:{app_version}, model-ad-api:{api_version}, "
-    f"model-ad-api-next:{api_next_version}, model-ad-apex:{apex_version}"
+    f"Using images: model-ad-app:{app_version}, qtl-api:{api_version}, "
+    f"model-ad-apex:{apex_version}"
 )
 
 # Define stacks
@@ -132,21 +131,23 @@ load_balancer_stack = LoadBalancerStack(
 )
 
 api_props = ServiceProps(
-    container_name="model-ad-api",
-    container_location=f"ghcr.io/sage-bionetworks/model-ad-api:{api_version}",
+    container_name="qtl-api",
+    container_location=f"ghcr.io/sage-bionetworks/qtl-api:{api_version}",
     container_port=3333,
     container_memory_reservation=2048,
     container_env_vars={
-        "NODE_ENV": "development",
-        "MONGODB_PORT": f"{mongodb_port}",
-        "MONGODB_NAME": "model-ad",
-        "MONGODB_USER": docdb_master_username,
-        "MONGODB_HOST": docdb_stack.cluster.cluster_endpoint.hostname,
+        "SERVER_PORT": "3333",
+        "SPRING_DATA_MONGODB_HOST": docdb_stack.cluster.cluster_endpoint.hostname,
+        "SPRING_DATA_MONGODB_PORT": f"{mongodb_port}",
+        "SPRING_DATA_MONGODB_DATABASE": "qtl",
+        "SPRING_DATA_MONGODB_USERNAME": docdb_master_username,
+        "SPRING_DATA_MONGODB_AUTHENTICATION_DATABASE": "admin",
+        "SPRING_PROFILES_ACTIVE": f"{environment}",
     },
     container_secrets=[
         ServiceSecret(
             secret_name=docdb_stack.master_password_secret.secret_name,
-            environment_key="MONGODB_PASS",
+            environment_key="SPRING_DATA_MONGODB_PASSWORD",
         )
     ],
     auto_scale_min_capacity=environment_variables["AUTO_SCALE_CAPACITY"]["min"],
@@ -165,42 +166,6 @@ api_stack.service.connections.allow_to_default_port(
     "Allow API container to connect to DocumentDB cluster",
 )
 
-api_next_props = ServiceProps(
-    container_name="model-ad-api-next",
-    container_location=f"ghcr.io/sage-bionetworks/model-ad-api-next:{api_next_version}",
-    container_port=3334,
-    container_memory_reservation=2048,
-    container_env_vars={
-        "SERVER_PORT": "3334",
-        "SPRING_DATA_MONGODB_HOST": docdb_stack.cluster.cluster_endpoint.hostname,
-        "SPRING_DATA_MONGODB_PORT": f"{mongodb_port}",
-        "SPRING_DATA_MONGODB_DATABASE": "model-ad",
-        "SPRING_DATA_MONGODB_USERNAME": docdb_master_username,
-        "SPRING_DATA_MONGODB_AUTHENTICATION_DATABASE": "admin",
-        "SPRING_PROFILES_ACTIVE": f"{environment}",
-    },
-    container_secrets=[
-        ServiceSecret(
-            secret_name=docdb_stack.master_password_secret.secret_name,
-            environment_key="SPRING_DATA_MONGODB_PASSWORD",
-        )
-    ],
-    auto_scale_min_capacity=environment_variables["AUTO_SCALE_CAPACITY"]["min"],
-    auto_scale_max_capacity=environment_variables["AUTO_SCALE_CAPACITY"]["max"],
-)
-api_next_stack = ServiceStack(
-    scope=cdk_app,
-    construct_id=f"{stack_name_prefix}-api-next",
-    vpc=network_stack.vpc,
-    cluster=ecs_stack.cluster,
-    props=api_next_props,
-)
-api_next_stack.add_dependency(docdb_stack)
-api_next_stack.service.connections.allow_to_default_port(
-    docdb_stack.cluster,
-    "Allow API Next container to connect to DocumentDB cluster",
-)
-
 app_props = ServiceProps(
     container_name="model-ad-app",
     container_location=f"ghcr.io/sage-bionetworks/model-ad-app:{app_version}",
@@ -210,8 +175,7 @@ app_props = ServiceProps(
         "APP_VERSION": app_version,
         "COMMIT_SHA": short_commit_sha,
         "CSR_API_URL": f"https://{fully_qualified_domain_name}/api/v1",
-        # TODO: update this port when model-ad-api is removed from this stack
-        "SSR_API_URL": "http://model-ad-api:3333/v1",
+        "SSR_API_URL": "http://qtl-api:3333/v1",
         "ENVIRONMENT": environment,
         "GOOGLE_TAG_MANAGER_ENABLED": environment_variables["GTM_ENABLED"],
         "GOOGLE_TAG_MANAGER_ID": environment_variables["GTM_CONTAINER_ID"],
@@ -235,7 +199,6 @@ app_stack = ServiceStack(
     props=app_props,
 )
 app_stack.add_dependency(api_stack)
-app_stack.add_dependency(api_next_stack)
 
 apex_props = ServiceProps(
     container_name="model-ad-apex",
@@ -243,12 +206,10 @@ apex_props = ServiceProps(
     container_port=80,
     container_memory_reservation=200,
     container_env_vars={
-        "API_HOST": "model-ad-api",
+        "API_HOST": "qtl-api",
         "API_PORT": "3333",
         "APP_HOST": "model-ad-app",
         "APP_PORT": "4200",
-        "API_NEXT_HOST": "model-ad-api-next",
-        "API_NEXT_PORT": "3334",
     },
     auto_scale_min_capacity=environment_variables["AUTO_SCALE_CAPACITY"]["min"],
     auto_scale_max_capacity=environment_variables["AUTO_SCALE_CAPACITY"]["max"],
@@ -265,7 +226,6 @@ apex_stack = LoadBalancedServiceStack(
 )
 apex_stack.add_dependency(app_stack)
 apex_stack.add_dependency(api_stack)
-apex_stack.add_dependency(api_next_stack)
 
 bastion_props = BastionProps(
     key_name="agora-access",
