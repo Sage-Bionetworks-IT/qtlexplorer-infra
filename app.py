@@ -21,9 +21,9 @@ match environment:
     case "prod":
         environment_variables = {
             "VPC_CIDR": "10.253.174.0/24",
-            "FQDN": "modeladexplorer.org",
+            "FQDN": "xqtlexplorer.adknowledgeportal.org",
             "CERTIFICATE_ID": "0983d5d7-6480-4292-b4bc-947712f248b0",
-            "TAGS": {"CostCenter": "Model AD-UCI / 123300", "Environment": "prod"},
+            "TAGS": {"CostCenter": "BrainCell QTL / 124900", "Environment": "prod"},
             "AUTO_SCALE_CAPACITY": {"min": 2, "max": 4},
             "GHCR_PACKAGE_VERSION": "1.1.0-rc1",
             "GTM_ENABLED": "true",
@@ -32,9 +32,9 @@ match environment:
     case "stage":
         environment_variables = {
             "VPC_CIDR": "10.253.173.0/24",
-            "FQDN": "stage.modeladexplorer.org",
+            "FQDN": "stage.xqtlexplorer.adknowledgeportal.org",
             "CERTIFICATE_ID": "0983d5d7-6480-4292-b4bc-947712f248b0",
-            "TAGS": {"CostCenter": "Model AD-IU / 123200", "Environment": "stage"},
+            "TAGS": {"CostCenter": "BrainCell QTL / 124900", "Environment": "stage"},
             "AUTO_SCALE_CAPACITY": {"min": 2, "max": 4},
             "GHCR_PACKAGE_VERSION": "1.1.0-rc1",
             "GTM_ENABLED": "false",
@@ -43,9 +43,9 @@ match environment:
     case "dev":
         environment_variables = {
             "VPC_CIDR": "10.253.172.0/24",
-            "FQDN": "dev.modeladexplorer.org",
+            "FQDN": "dev.xqtlexplorer.adknowledgeportal.org",
             "CERTIFICATE_ID": "b2e46121-3f53-4aba-af2e-bd724549c494",
-            "TAGS": {"CostCenter": "Model AD-IU / 123200", "Environment": "dev"},
+            "TAGS": {"CostCenter": "BrainCell QTL / 124900", "Environment": "dev"},
             "AUTO_SCALE_CAPACITY": {"min": 1, "max": 2},
             "GHCR_PACKAGE_VERSION": "edge",
             "GTM_ENABLED": "false",
