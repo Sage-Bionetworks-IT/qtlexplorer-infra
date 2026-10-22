@@ -70,7 +70,7 @@ vpn_cidr = "10.1.0.0/16"
 # Resolve image tags for each service
 app_version = get_image_version("qtl-app", ghcr_package_version)
 api_version = get_image_version("qtl-api", ghcr_package_version)
-apex_version = get_image_version("model-ad-apex", ghcr_package_version)
+apex_version = get_image_version("qtl-apex", ghcr_package_version)
 
 short_commit_sha = get_short_commit_sha(
     "sage-monorepo", app_version, ghcr_package_version, tag_prefix=TAG_PREFIX
@@ -78,7 +78,7 @@ short_commit_sha = get_short_commit_sha(
 
 print(
     f"Using images: qtl-app:{app_version}, qtl-api:{api_version}, "
-    f"model-ad-apex:{apex_version}"
+    f"qtl-apex:{apex_version}"
 )
 
 # Define stacks
@@ -197,8 +197,8 @@ app_stack = ServiceStack(
 app_stack.add_dependency(api_stack)
 
 apex_props = ServiceProps(
-    container_name="model-ad-apex",
-    container_location=f"ghcr.io/sage-bionetworks/model-ad-apex:{apex_version}",
+    container_name="qtl-apex",
+    container_location=f"ghcr.io/sage-bionetworks/qtl-apex:{apex_version}",
     container_port=80,
     container_memory_reservation=200,
     container_env_vars={
