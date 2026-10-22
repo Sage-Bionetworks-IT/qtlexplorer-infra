@@ -11,7 +11,7 @@ from constructs import Construct
 
 class LoadBalancerStack(cdk.Stack):
     """
-    API Gateway to allow access to ECS app from the internet
+    Load Balancer to allow access to ECS app from the internet
     """
 
     def __init__(
