@@ -20,7 +20,7 @@ environment = environ.get("ENV")
 match environment:
     case "prod":
         environment_variables = {
-            "VPC_CIDR": "10.253.174.0/24",
+            "VPC_CIDR": "10.252.174.0/24",
             "FQDN": "xqtlexplorer.adknowledgeportal.org",
             "CERTIFICATE_ID": "0983d5d7-6480-4292-b4bc-947712f248b0",
             "TAGS": {"CostCenter": "BrainCell QTL / 124900", "Environment": "prod"},
@@ -31,7 +31,7 @@ match environment:
         }
     case "stage":
         environment_variables = {
-            "VPC_CIDR": "10.253.173.0/24",
+            "VPC_CIDR": "10.252.173.0/24",
             "FQDN": "stage.xqtlexplorer.adknowledgeportal.org",
             "CERTIFICATE_ID": "0983d5d7-6480-4292-b4bc-947712f248b0",
             "TAGS": {"CostCenter": "BrainCell QTL / 124900", "Environment": "stage"},
@@ -42,7 +42,7 @@ match environment:
         }
     case "dev":
         environment_variables = {
-            "VPC_CIDR": "10.253.172.0/24",
+            "VPC_CIDR": "10.252.172.0/24",
             "FQDN": "dev.xqtlexplorer.adknowledgeportal.org",
             "CERTIFICATE_ID": "b2e46121-3f53-4aba-af2e-bd724549c494",
             "TAGS": {"CostCenter": "BrainCell QTL / 124900", "Environment": "dev"},
