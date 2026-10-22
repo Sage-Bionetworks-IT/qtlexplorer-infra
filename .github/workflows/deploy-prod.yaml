@@ -20,6 +20,6 @@ jobs:
       id-token: write
     uses: "./.github/workflows/aws-deploy.yaml"
     with:
-      role-to-assume: "arn:aws:iam::681175625864:role/sagebase-github-oidc-modeladexplorer-infra"
+      role-to-assume: "arn:aws:iam::681175625864:role/sagebase-github-oidc-qtlexplorer-infra"
       role-session-name: ${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ github.run_id }}
       aws-environment: prod
