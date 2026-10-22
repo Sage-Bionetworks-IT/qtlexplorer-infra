@@ -26,6 +26,7 @@ match environment:
             "TAGS": {"CostCenter": "BrainCell QTL / 124900", "Environment": "prod"},
             "AUTO_SCALE_CAPACITY": {"min": 2, "max": 4},
             "GHCR_PACKAGE_VERSION": "edge",
+            # TODO(EX-9): enable GTM with the QTL container ID once it exists
             "GTM_ENABLED": "false",
             "GTM_CONTAINER_ID": "",
         }
@@ -67,7 +68,7 @@ mongodb_port = 27017
 vpn_cidr = "10.1.0.0/16"
 
 # Resolve image tags for each service
-app_version = get_image_version("model-ad-app", ghcr_package_version)
+app_version = get_image_version("qtl-app", ghcr_package_version)
 api_version = get_image_version("qtl-api", ghcr_package_version)
 apex_version = get_image_version("model-ad-apex", ghcr_package_version)
 
@@ -76,7 +77,7 @@ short_commit_sha = get_short_commit_sha(
 )
 
 print(
-    f"Using images: model-ad-app:{app_version}, qtl-api:{api_version}, "
+    f"Using images: qtl-app:{app_version}, qtl-api:{api_version}, "
     f"model-ad-apex:{apex_version}"
 )
 
@@ -167,8 +168,8 @@ api_stack.service.connections.allow_to_default_port(
 )
 
 app_props = ServiceProps(
-    container_name="model-ad-app",
-    container_location=f"ghcr.io/sage-bionetworks/model-ad-app:{app_version}",
+    container_name="qtl-app",
+    container_location=f"ghcr.io/sage-bionetworks/qtl-app:{app_version}",
     container_port=4200,
     container_memory_reservation=1024,
     container_env_vars={
@@ -180,14 +181,9 @@ app_props = ServiceProps(
         "GOOGLE_TAG_MANAGER_ENABLED": environment_variables["GTM_ENABLED"],
         "GOOGLE_TAG_MANAGER_ID": environment_variables["GTM_CONTAINER_ID"],
         "SENTRY_ENVIRONMENT": environment,
-        "SENTRY_RELEASE": f"model-ad@{ghcr_package_version}+{short_commit_sha}",
+        "SENTRY_RELEASE": f"qtl@{ghcr_package_version}+{short_commit_sha}",
     },
-    container_secrets=[
-        ServiceSecret(
-            secret_name="model-ad-sentry-dsn",
-            environment_key="SENTRY_DSN",
-        )
-    ],
+    # TODO(EX-161): add the qtl-sentry-dsn secret as SENTRY_DSN once it exists in Secrets Manager
     auto_scale_min_capacity=environment_variables["AUTO_SCALE_CAPACITY"]["min"],
     auto_scale_max_capacity=environment_variables["AUTO_SCALE_CAPACITY"]["max"],
 )
@@ -208,7 +204,7 @@ apex_props = ServiceProps(
     container_env_vars={
         "API_HOST": "qtl-api",
         "API_PORT": "3333",
-        "APP_HOST": "model-ad-app",
+        "APP_HOST": "qtl-app",
         "APP_PORT": "4200",
     },
     auto_scale_min_capacity=environment_variables["AUTO_SCALE_CAPACITY"]["min"],
