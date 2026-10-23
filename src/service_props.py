@@ -53,8 +53,7 @@ class ServiceProps:
       supports "path://" for building container from local (i.e. path://docker/MyContainer)
       supports docker registry references (i.e. ghcr.io/sage-bionetworks/app:latest)
     container_port: the container application port
-    ecs_task_cpu: the ECS task CPU in millicores (i.e. 1024 = 1 vCPU)
-    ecs_task_memory: the ECS task memory
+    container_memory_reservation: the soft limit of memory to reserve from the task memory for the container application
     container_env_vars: a json dictionary of environment variables to pass into the container
       i.e. {"EnvA": "EnvValueA", "EnvB": "EnvValueB"}
     container_secrets: List of `ServiceSecret` resources to pull from AWS secrets manager
@@ -70,11 +69,10 @@ class ServiceProps:
         container_name: str,
         container_location: str,
         container_port: int,
+        container_memory_reservation: int = 512,
         container_env_vars: dict = None,
         container_secrets: List[ServiceSecret] = None,
         container_volumes: List[ContainerVolume] = None,
-        ecs_task_cpu: int = 256,
-        ecs_task_memory: int = 512,
         auto_scale_min_capacity: int = 1,
         auto_scale_max_capacity: int = 1,
         container_command: Optional[Sequence[str]] = None,
@@ -82,10 +80,8 @@ class ServiceProps:
     ) -> None:
         self.container_name = container_name
         self.container_port = container_port
-        self.ecs_task_cpu = ecs_task_cpu
-        self.ecs_task_memory = ecs_task_memory
-        self.build_from_path = container_location.startswith(CONTAINER_LOCATION_PATH_ID)
-        if self.build_from_path:
+        self.container_memory_reservation = container_memory_reservation
+        if CONTAINER_LOCATION_PATH_ID in container_location:
             container_location = container_location.removeprefix(
                 CONTAINER_LOCATION_PATH_ID
             )

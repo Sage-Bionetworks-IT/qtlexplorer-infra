@@ -1,39 +1,123 @@
+from os import environ
+
 import aws_cdk as cdk
+from aws_cdk import aws_ec2 as ec2
 
 from src.ecs_stack import EcsStack
+from src.helpers.github_helpers import get_image_version, get_short_commit_sha
 from src.load_balancer_stack import LoadBalancerStack
-from src.monitoring_stack import MonitoringStack
 from src.network_stack import NetworkStack
-from src.service_props import ServiceProps
-from src.service_stack import LoadBalancedServiceStack
-from src.utils import load_context_config
+from src.service_props import ServiceProps, ServiceSecret
+from src.service_stack import LoadBalancedServiceStack, ServiceStack
+from src.docdb_props import DocdbProps
+from src.docdb_stack import DocdbStack
 
+# get the environment and set environment specific variables
+VALID_ENVIRONMENTS = ["dev", "stage", "prod"]
+environment = environ.get("ENV")
+match environment:
+    case "prod":
+        environment_variables = {
+            "VPC_CIDR": "10.252.174.0/24",
+            "FQDN": "xqtlexplorer.adknowledgeportal.org",
+            "CERTIFICATE_ID": "ccf7a7bb-2d30-40ef-89b8-5c9c0581cee5",
+            "TAGS": {"CostCenter": "BrainCell QTL / 124900", "Environment": "prod"},
+            "AUTO_SCALE_CAPACITY": {"min": 2, "max": 4},
+            "GHCR_PACKAGE_VERSION": "edge",
+            # TODO(EX-9): enable GTM with the QTL container ID once it exists
+            "GTM_ENABLED": "false",
+            "GTM_CONTAINER_ID": "",
+        }
+    case "stage":
+        environment_variables = {
+            "VPC_CIDR": "10.252.173.0/24",
+            "FQDN": "stage.xqtlexplorer.adknowledgeportal.org",
+            "CERTIFICATE_ID": "ccf7a7bb-2d30-40ef-89b8-5c9c0581cee5",
+            "TAGS": {"CostCenter": "BrainCell QTL / 124900", "Environment": "stage"},
+            "AUTO_SCALE_CAPACITY": {"min": 2, "max": 4},
+            "GHCR_PACKAGE_VERSION": "edge",
+            "GTM_ENABLED": "false",
+            "GTM_CONTAINER_ID": "",
+        }
+    case "dev":
+        environment_variables = {
+            "VPC_CIDR": "10.252.172.0/24",
+            "FQDN": "dev.xqtlexplorer.adknowledgeportal.org",
+            "CERTIFICATE_ID": "ce35afd1-c1a3-4b39-8f90-9636aa472981",
+            "TAGS": {"CostCenter": "BrainCell QTL / 124900", "Environment": "dev"},
+            "AUTO_SCALE_CAPACITY": {"min": 1, "max": 2},
+            "GHCR_PACKAGE_VERSION": "edge",
+            "GTM_ENABLED": "false",
+            "GTM_CONTAINER_ID": "",
+        }
+    case _:
+        valid_envs_str = ",".join(VALID_ENVIRONMENTS)
+        raise SystemExit(
+            f"Must set environment variable `ENV` to one of {valid_envs_str}. Currently set to {environment}."
+        )
+
+TAG_PREFIX = "qtl/v"
+stack_name_prefix = f"qtl-{environment}"
+fully_qualified_domain_name = environment_variables["FQDN"]
+environment_tags = environment_variables["TAGS"]
+ghcr_package_version = environment_variables["GHCR_PACKAGE_VERSION"]
+docdb_master_username = "master"
+mongodb_port = 27017
+vpn_cidr = "10.1.0.0/16"
+
+# Resolve image tags for each service
+app_version = get_image_version("qtl-app", ghcr_package_version)
+api_version = get_image_version("qtl-api", ghcr_package_version)
+apex_version = get_image_version("qtl-apex", ghcr_package_version)
+
+short_commit_sha = get_short_commit_sha(
+    "sage-monorepo", app_version, ghcr_package_version, tag_prefix=TAG_PREFIX
+)
+
+print(
+    f"Using images: qtl-app:{app_version}, qtl-api:{api_version}, "
+    f"qtl-apex:{apex_version}"
+)
+
+# Define stacks
 cdk_app = cdk.App()
-env_name = cdk_app.node.try_get_context("env") or "dev"
-config = load_context_config(env_name=env_name)
-STACK_NAME_PREFIX = f"app-{env_name}"
-FQDN = config["FQDN"]
-TAGS = config["TAGS"]
-APP_VERSION = "latest"
-MONITORING_CONFIG = config.get("MONITORING", {})
 
 # recursively apply tags to all stack resources
-if TAGS:
-    for key, value in TAGS.items():
+if environment_tags:
+    for key, value in environment_tags.items():
         cdk.Tags.of(cdk_app).add(key, value)
 
 network_stack = NetworkStack(
     scope=cdk_app,
-    construct_id=f"{STACK_NAME_PREFIX}-network",
-    vpc_cidr=config["VPC_CIDR"],
+    construct_id=f"{stack_name_prefix}-network",
+    vpc_cidr=environment_variables["VPC_CIDR"],
 )
+
+docdb_props = DocdbProps(
+    instance_type=ec2.InstanceType.of(
+        ec2.InstanceClass.MEMORY5, ec2.InstanceSize.LARGE
+    ),
+    master_username=docdb_master_username,
+    port=mongodb_port,
+    family="docdb8.0",
+    engine_version="8.0.0",
+)
+docdb_stack = DocdbStack(
+    scope=cdk_app,
+    construct_id=f"{stack_name_prefix}-docdb-v8",
+    vpc=network_stack.vpc,
+    props=docdb_props,
+)
+docdb_stack.cluster.connections.allow_from(
+    ec2.Peer.ipv4(vpn_cidr), ec2.Port.all_traffic(), "Allow all VPN traffic"
+)
+# TODO(EX-7): allow the data import job to reach DocumentDB once its approach is decided
 
 ecs_stack = EcsStack(
     scope=cdk_app,
-    construct_id=f"{STACK_NAME_PREFIX}-ecs",
+    construct_id=f"{stack_name_prefix}-ecs",
     vpc=network_stack.vpc,
-    namespace=FQDN,
-    container_insights=bool(MONITORING_CONFIG.get("enabled", False)),
+    namespace=fully_qualified_domain_name,
 )
 
 # From AWS docs https://docs.aws.amazon.com/AmazonECS/latest/developerguide/service-connect-concepts-deploy.html
@@ -42,41 +126,100 @@ ecs_stack = EcsStack(
 # client service is running and available the public, but a backend isn't.
 load_balancer_stack = LoadBalancerStack(
     scope=cdk_app,
-    construct_id=f"{STACK_NAME_PREFIX}-load-balancer",
+    construct_id=f"{stack_name_prefix}-load-balancer",
     vpc=network_stack.vpc,
 )
-load_balancer_stack.add_dependency(ecs_stack)
+
+api_props = ServiceProps(
+    container_name="qtl-api",
+    container_location=f"ghcr.io/sage-bionetworks/qtl-api:{api_version}",
+    container_port=3333,
+    container_memory_reservation=2048,
+    container_env_vars={
+        "SERVER_PORT": "3333",
+        "SPRING_DATA_MONGODB_HOST": docdb_stack.cluster.cluster_endpoint.hostname,
+        "SPRING_DATA_MONGODB_PORT": f"{mongodb_port}",
+        "SPRING_DATA_MONGODB_DATABASE": "qtl",
+        "SPRING_DATA_MONGODB_USERNAME": docdb_master_username,
+        "SPRING_DATA_MONGODB_AUTHENTICATION_DATABASE": "admin",
+        "SPRING_PROFILES_ACTIVE": f"{environment}",
+    },
+    container_secrets=[
+        ServiceSecret(
+            secret_name=docdb_stack.master_password_secret.secret_name,
+            environment_key="SPRING_DATA_MONGODB_PASSWORD",
+        )
+    ],
+    auto_scale_min_capacity=environment_variables["AUTO_SCALE_CAPACITY"]["min"],
+    auto_scale_max_capacity=environment_variables["AUTO_SCALE_CAPACITY"]["max"],
+)
+api_stack = ServiceStack(
+    scope=cdk_app,
+    construct_id=f"{stack_name_prefix}-api",
+    vpc=network_stack.vpc,
+    cluster=ecs_stack.cluster,
+    props=api_props,
+)
+api_stack.add_dependency(docdb_stack)
+api_stack.service.connections.allow_to_default_port(
+    docdb_stack.cluster,
+    "Allow API container to connect to DocumentDB cluster",
+)
 
 app_props = ServiceProps(
-    ecs_task_cpu=256,
-    ecs_task_memory=512,
-    container_name="my-app",
-    # can also reference github with 'ghcr.io/sage-bionetworks/my-app:{APP_VERSION}'
-    container_location=f"nginx:{APP_VERSION}",
-    container_port=80,
+    container_name="qtl-app",
+    container_location=f"ghcr.io/sage-bionetworks/qtl-app:{app_version}",
+    container_port=4200,
+    container_memory_reservation=1024,
     container_env_vars={
-        "APP_VERSION": f"{APP_VERSION}",
+        "APP_VERSION": app_version,
+        "COMMIT_SHA": short_commit_sha,
+        "CSR_API_URL": f"https://{fully_qualified_domain_name}/api/v1",
+        "SSR_API_URL": "http://qtl-api:3333/v1",
+        "ENVIRONMENT": environment,
+        "GOOGLE_TAG_MANAGER_ENABLED": environment_variables["GTM_ENABLED"],
+        "GOOGLE_TAG_MANAGER_ID": environment_variables["GTM_CONTAINER_ID"],
+        "SENTRY_ENVIRONMENT": environment,
+        "SENTRY_RELEASE": f"qtl@{ghcr_package_version}+{short_commit_sha}",
     },
+    # TODO(EX-161): add the qtl-sentry-dsn secret as SENTRY_DSN once it exists in Secrets Manager
+    auto_scale_min_capacity=environment_variables["AUTO_SCALE_CAPACITY"]["min"],
+    auto_scale_max_capacity=environment_variables["AUTO_SCALE_CAPACITY"]["max"],
 )
-app_stack = LoadBalancedServiceStack(
+app_stack = ServiceStack(
     scope=cdk_app,
-    construct_id=f"{STACK_NAME_PREFIX}-app",
+    construct_id=f"{stack_name_prefix}-app",
     vpc=network_stack.vpc,
     cluster=ecs_stack.cluster,
     props=app_props,
-    load_balancer=load_balancer_stack.alb,
 )
+app_stack.add_dependency(api_stack)
 
-if MONITORING_CONFIG.get("enabled", False):
-    monitoring_stack = MonitoringStack(
-        scope=cdk_app,
-        construct_id=f"{STACK_NAME_PREFIX}-monitoring",
-        service=app_stack.service,
-        cluster=ecs_stack.cluster,
-        load_balancer=load_balancer_stack.alb,
-        target_group=app_stack.target_group,
-        monitoring_config=MONITORING_CONFIG,
-    )
-    monitoring_stack.add_dependency(app_stack)
+apex_props = ServiceProps(
+    container_name="qtl-apex",
+    container_location=f"ghcr.io/sage-bionetworks/qtl-apex:{apex_version}",
+    container_port=80,
+    container_memory_reservation=200,
+    container_env_vars={
+        "API_HOST": "qtl-api",
+        "API_PORT": "3333",
+        "APP_HOST": "qtl-app",
+        "APP_PORT": "4200",
+    },
+    auto_scale_min_capacity=environment_variables["AUTO_SCALE_CAPACITY"]["min"],
+    auto_scale_max_capacity=environment_variables["AUTO_SCALE_CAPACITY"]["max"],
+)
+apex_stack = LoadBalancedServiceStack(
+    scope=cdk_app,
+    construct_id=f"{stack_name_prefix}-apex",
+    vpc=network_stack.vpc,
+    cluster=ecs_stack.cluster,
+    props=apex_props,
+    load_balancer=load_balancer_stack.alb,
+    certificate_id=environment_variables["CERTIFICATE_ID"],
+    health_check_path="/health",
+)
+apex_stack.add_dependency(app_stack)
+apex_stack.add_dependency(api_stack)
 
 cdk_app.synth()
